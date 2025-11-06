@@ -12,3 +12,7 @@ DATE_FORMAT = "%Y-%m-%d"
 
 START_DATE = "2023-01-01"
 END_DATE = "2023-04-01"
+
+GROUP_METRICS = "metrics"
+GROUP_RAW = "raw_files"
+GROUP_INGESTED = "ingested"

@@ -1,21 +1,22 @@
+import pandas as pd
 import requests
 from src.dagster_essentials.defs.assets import constants
 import dagster as dg
-import duckdb
-import os
 from dagster_duckdb import DuckDBResource
+
+from src.dagster_essentials.defs.assets.constants import GROUP_RAW, GROUP_INGESTED
 from src.dagster_essentials.defs.partitions import monthly_partition
 
 
-from dagster._utils.backoff import backoff
 
 
 
 # src/dagster_essentials/defs/assets/trips.py
 @dg.asset(
     partitions_def=monthly_partition,
+    group_name=GROUP_RAW,
 )
-def taxi_trips_file(context: dg.AssetExecutionContext) -> None:
+def taxi_trips_file(context: dg.AssetExecutionContext) -> dg.MaterializeResult:
     """
       The raw parquet files for the taxi trips dataset. Sourced from the NYC Open Data portal.
     """
@@ -27,19 +28,37 @@ def taxi_trips_file(context: dg.AssetExecutionContext) -> None:
 
     with open(constants.TAXI_TRIPS_TEMPLATE_FILE_PATH.format(month_to_fetch), "wb") as output_file:
         output_file.write(raw_trips.content)
+    num_rows = len(pd.read_parquet(constants.TAXI_TRIPS_TEMPLATE_FILE_PATH.format(month_to_fetch)))
+    return dg.MaterializeResult(
+        metadata={
+            'Number of records': dg.MetadataValue.int(num_rows)
+        }
+    )
 
 
-@dg.asset
-def taxi_zones_file() -> None:
+
+@dg.asset(
+    description="The raw CSV file for the taxi zones dataset. Sourced from the NYC Open Data portal.",
+    group_name=GROUP_RAW,
+)
+def taxi_zones_file() -> dg.MaterializeResult:
     """NYC taxi zones dataset."""
     raw_zones = requests.get(
         f"https://community-engineering-artifacts.s3.us-west-2.amazonaws.com/dagster-university/data/taxi_zones.csv"
     )
     with open(constants.TAXI_ZONES_FILE_PATH, "wb") as output_file:
         output_file.write(raw_zones.content)
+    num_rows = len(pd.read_csv(constants.TAXI_ZONES_FILE_PATH))
+
+    return dg.MaterializeResult(
+        metadata={
+            'Number of records': dg.MetadataValue.int(num_rows)
+        }
+    )
 
 @dg.asset(
-    deps=["taxi_zones_file"]
+    deps=["taxi_zones_file"],
+    group_name=GROUP_INGESTED,
 )
 def taxi_zones(database: DuckDBResource) -> None:
     """NYC taxi zones dataset."""
@@ -59,6 +78,7 @@ def taxi_zones(database: DuckDBResource) -> None:
 @dg.asset(
     deps=["taxi_trips_file"],
     partitions_def=monthly_partition,
+    group_name=GROUP_INGESTED,
 )
 def taxi_trips(context: dg.AssetExecutionContext, database: DuckDBResource) -> None:
     """
